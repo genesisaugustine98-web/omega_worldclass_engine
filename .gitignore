@@ -1,0 +1,12 @@
+.env
+.ipynb_checkpoints/
+.pytest_cache/
+.venv/
+__pycache__/
+*.py[cod]
+artifacts/
+data/
+checkpoints/
+*.joblib
+*.parquet
+*.csv

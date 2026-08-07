@@ -1,0 +1,27 @@
+runtime:
+  profile: FREE_CPU
+  storage_backend: auto
+  data_root: ${OMEGA_DATA_ROOT:-./artifacts/cloud_data}
+  run_root: ${OMEGA_RUN_ROOT:-./artifacts/cloud_runs}
+  max_workers: 1
+  memory_budget_mb: 1800
+  checkpoint_minutes: 10
+  fail_if_storage_missing: true
+data_source:
+  provider: oanda
+  explicit_terms_accepted: false
+  environment: practice
+  instrument: EUR_USD
+  granularity: M30
+  start: "2005-01-01T00:00:00Z"
+  end: "2025-01-01T00:00:00Z"
+  price: MBA
+  partition: month
+notifications:
+  telegram_enabled: false
+  heartbeat_minutes: 30
+training:
+  mode: FREE_CPU
+  models: [logistic, hist_gradient_boosting]
+  resume: true
+  checkpoint_per_label_fold: true

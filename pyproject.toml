@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "omega-worldclass-engine"
+version = "0.2.0"
+description = "Colab-first FX market-state research engine"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+  "joblib==1.4.2",
+  "numpy==2.1.3",
+  "pandas==2.2.3",
+  "pyarrow==18.1.0",
+  "PyYAML==6.0.2",
+  "scikit-learn==1.5.2",
+]
+
+[project.optional-dependencies]
+dev = ["pytest==8.3.4"]
+
+[tool.setuptools.packages.find]
+include = ["omega*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

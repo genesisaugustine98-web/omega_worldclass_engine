@@ -1,0 +1,56 @@
+project:
+  name: OMEGA-WORLDCLASS-ENGINE
+  seed: 42
+  mode: learning
+  academic_only: true
+data:
+  root: ${OMEGA_DATA_ROOT:-./artifacts/data}
+  symbols: [EURUSD]
+  timeframe_minutes: 30
+  start: "2015-01-01"
+  end: "2025-01-01"
+  raw_immutable: true
+  expected_timezone: UTC
+  max_missing_open_bars: 0
+  max_duplicate_rows: 0
+  max_robust_return_z: 25.0
+  require_spread: false
+features:
+  windows: [2, 4, 8, 16, 48]
+  include_time_features: true
+labels:
+  horizon_bars: 8
+  lookback_bars: 48
+  move_atr: 1.25
+  reversal_atr: 0.75
+  compression_quantile: 0.20
+  expansion_quantile: 0.80
+evaluation:
+  train_bars: 3000
+  test_bars: 1000
+  step_bars: 1000
+  embargo_bars: 8
+  calibration_fraction: 0.20
+  alpha: 0.10
+  abstain_below: 0.58
+models:
+  logistic: true
+  hist_gradient_boosting: true
+  tft: false
+  tabpfn: false
+  causal_transformer: false
+backtest:
+  enabled: true
+  one_bar_latency: true
+  spread_bps: 1.0
+  slippage_bps: 0.5
+  max_position: 1.0
+  annualization_bars: 12480
+optional:
+  llm_news: false
+  quantum_walk: false
+  causal_graph: false
+  reinforcement_learning: false
+  cross_asset_gnn: false
+notifications:
+  telegram_enabled: false
