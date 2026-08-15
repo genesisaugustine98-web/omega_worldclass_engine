@@ -152,6 +152,26 @@ Secrets are loaded from the platform secret store by `load_platform_secrets`
 (`omega/secrets.py`); new provider keys are `OMEGA_TWELVEDATA_API_KEY` and
 `OMEGA_POLYGON_API_KEY`.
 
+### Scheduling automatic refreshes
+
+Because `--refresh` is idempotent and only downloads new months, it is safe to
+run on a schedule. Two options:
+
+- **Local cron.** Add a monthly job that refreshes then trains:
+  ```bash
+  0 6 1 * * cd /path/to/omega_worldclass_engine && \
+    OMEGA_TWELVEDATA_API_KEY=<from your secret store> \
+    python scripts/train.py --config config/cloud_twelvedata.yaml \
+    --accept-provider-terms --max-partitions 3 >> /var/log/omega_train.log 2>&1
+  ```
+- **Colab scheduled cell.** Colab lets you schedule notebook execution; run
+  `colab/01_AUTO_REFRESH_AND_TRAIN.ipynb` on a cadence (e.g. weekly) and only
+  the new month's partition is downloaded into Drive each time.
+
+In both cases set `data_source.end` (or pass `--end`) to a month boundary just
+past today so the current month is included; the current month is exempt from
+the completeness rule and is re-fetched until it ends.
+
 ## Add a new SOTA paper in 10 minutes
 
 1. Add an exact citation and supported proposition to `docs/references.md`.
