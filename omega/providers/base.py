@@ -72,6 +72,17 @@ def provider_get(
         raise ProviderError(f"Provider request failed: {exc.reason}") from exc
 
 
+def fx_calendar_mask(timestamps: pd.Series) -> pd.Series:
+    """Mask of timestamps inside the FX trading calendar.
+
+    The market is closed on Saturday and on Sunday before 20:00 UTC. Some free
+    providers (Twelve Data) emit flat, zero-volume bars for the closed period;
+    those must not enter a training panel because they are not real trades.
+    """
+    ts = pd.to_datetime(timestamps, utc=True)
+    return ~((ts.dt.dayofweek == 5) | ((ts.dt.dayofweek == 6) & (ts.dt.hour < 20)))
+
+
 @dataclass(frozen=True)
 class PartitionRequest:
     instrument: str

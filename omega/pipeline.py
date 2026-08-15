@@ -43,15 +43,18 @@ def run_pipeline(df, cfg, artifact_dir="artifacts/run"):
         compression_q=label_cfg["compression_quantile"],
         expansion_q=label_cfg["expansion_quantile"],
     )
-    merged=X.merge(y,on="timestamp").dropna(); feature_cols=[c for c in X if c!="timestamp"]
+    merged=X.merge(y,on="timestamp"); feature_cols=[c for c in X if c!="timestamp"]
+    all_nan_features=[c for c in feature_cols if merged[c].isna().all()]
+    if all_nan_features:
+        logger.warning("Features are entirely NaN in the merged panel and carry no signal; dropping them: %s", all_nan_features)
+        merged=merged.drop(columns=all_nan_features)
+        feature_cols=[c for c in feature_cols if c not in all_nan_features]
+    merged=merged.dropna()
     if merged.empty:
         raise ValueError(
             "No rows survived the warm-up (features), label horizon (labels), and dropna merge; "
             "the dataset is too short or all values are missing"
         )
-    all_nan_features=[c for c in feature_cols if merged[c].isna().all()]
-    if all_nan_features:
-        logger.warning("Features are entirely NaN in the merged panel and carry no signal: %s", all_nan_features)
     atomic_json(art/"trainable_panel.json",{
         "rows": int(len(merged)),
         "feature_columns": feature_cols,

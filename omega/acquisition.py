@@ -4,6 +4,8 @@ from dataclasses import asdict, dataclass
 from datetime import datetime
 from pathlib import Path
 
+import json
+
 import pandas as pd
 
 from .cloud_config import build_provider
@@ -155,7 +157,7 @@ def refresh_dataset(
         )
     )
 
-    existing = _existing_partitions(store, source["provider"], source["instrument"])
+    existing = _complete_partitions(store, source["provider"], source["instrument"], requests)
     missing = [r for r in requests if r.key not in existing]
     fetched: list[dict] = []
     skipped: list[str] = []
@@ -170,11 +172,13 @@ def refresh_dataset(
         orchestrator = PartitionOrchestrator(store, ledger, selected_provider)
         require_spread = "B" in source["price"] and "A" in source["price"]
         for request in missing[:cap]:
-            fetched.append(orchestrator.acquire(request, require_spread=require_spread))
+            fetched.append(orchestrator.acquire(request, require_spread=require_spread, force=True))
         skipped = [r.key for r in missing[cap:]]
 
     integrity = check_dataset_integrity(store, source["provider"], source["instrument"])
     dataset = dataset_manifest(store, source["provider"], source["instrument"])
+    fetched_keys = {m["request"]["start"] for m in fetched}
+    already = sorted(set(existing) - fetched_keys)
     return {
         "provider": source["provider"],
         "instrument": source["instrument"],
@@ -182,7 +186,7 @@ def refresh_dataset(
         "end": end_ts.isoformat(),
         "fetched_partitions": [m["request"]["start"] for m in fetched],
         "skipped_partitions": skipped,
-        "already_present": sorted(set(r.key for r in requests) - {m["request"]["start"] for m in fetched}),
+        "already_present": already,
         "integrity": integrity,
         "dataset": dataset,
     }
@@ -213,15 +217,28 @@ def load_dataset(
 
     start_ts = _utc_timestamp(start, "start")
     end_ts = _utc_timestamp(end, "end")
+    requests = list(
+        monthly_requests(
+            instrument=instrument,
+            start=start_ts.isoformat(),
+            end=end_ts.isoformat(),
+            granularity=source["granularity"],
+            price=source["price"],
+        )
+    )
+    complete = _complete_partitions(store, provider, instrument, requests)
+    missing = [request.key for request in requests if request.key not in complete]
+    if missing:
+        raise DataError(
+            f"Dataset {provider}/{instrument} is missing or incomplete for "
+            f"{len(missing)} month(s) in [{start_ts}, {end_ts}): {sorted(missing)[:5]}..."
+        )
+
     manifest_root = store.path(f"manifests/{provider}/{instrument}")
-    files = sorted(manifest_root.rglob("*.json")) if manifest_root.exists() else []
     frames = []
-    for file in files:
-        year, month = file.parent.name, file.stem
-        partition_start = pd.Timestamp(year=int(year), month=int(month), day=1, tz="UTC")
-        if not (start_ts <= partition_start < end_ts):
-            continue
-        key = f"normalized/{provider}/{instrument}/{year}/{month}/bars.parquet"
+    for request in requests:
+        year, month = request.start.year, request.start.month
+        key = f"normalized/{provider}/{instrument}/{year}/{month:02d}/bars.parquet"
         if not store.exists(key):
             raise DataError(f"Manifest present but normalized bars missing: {key}")
         frames.append(pd.read_parquet(store.path(key)))
@@ -242,15 +259,56 @@ def load_dataset(
     return panel
 
 
-def _existing_partitions(store: FileStore, provider: str, instrument: str) -> set[str]:
+def _complete_partitions(
+    store: FileStore,
+    provider: str,
+    instrument: str,
+    requests: list[PartitionRequest],
+) -> set[str]:
+    """Return keys of partitions whose stored coverage spans the whole month.
+
+    A manifest existing is not proof of completeness: providers can truncate a
+    response (e.g. a free-tier point cap that drops the month's opening bars).
+    A partition counts as complete only when its first bar lands on (or within
+    the weekend gap after) the month's first trading day and its last bar
+    reaches the month's final trading day. Anything shorter is re-fetched.
+
+    The current calendar month is exempt: it is still being produced and is
+    legitimately partial until it ends.
+    """
     manifest_root = store.path(f"manifests/{provider}/{instrument}")
     if not manifest_root.exists():
         return set()
-    return {
-        f"{instrument}/{file.parent.name}/{file.stem}"
-        for file in manifest_root.rglob("*.json")
-        if file.parent.name.isdigit() and file.stem.isdigit()
-    }
+    now = pd.Timestamp.utcnow()
+    complete: set[str] = set()
+    for request in requests:
+        month, year = request.start.month, request.start.year
+        manifest_path = manifest_root / f"{year}" / f"{month:02d}.json"
+        if not manifest_path.exists():
+            continue
+        try:
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            normalized = manifest["normalized"]
+            first = pd.Timestamp(normalized["first_timestamp"])
+            last = pd.Timestamp(normalized["last_timestamp"])
+        except (KeyError, ValueError, OSError):
+            continue
+        month_start = pd.Timestamp(year=year, month=month, day=1, tz="UTC")
+        month_end = month_start + pd.offsets.MonthEnd(1)
+        is_current_month = (now.year == year) and (now.month == month)
+        # Opening bars may be missing only for the weekend gap: market opens
+        # Sunday 20:00 UTC, so a month that begins on a Saturday can legitimately
+        # start as late as the following Monday 00:00.
+        earliest_expected_open = month_start + pd.Timedelta(days=2)
+        front_ok = first <= earliest_expected_open + pd.Timedelta(hours=1)
+        if is_current_month:
+            if front_ok and last >= month_start:
+                complete.add(request.key)
+            continue
+        back_ok = last >= month_end - pd.Timedelta(days=1)
+        if front_ok and back_ok:
+            complete.add(request.key)
+    return complete
 
 
 def _utc_timestamp(value: str, field: str) -> pd.Timestamp:

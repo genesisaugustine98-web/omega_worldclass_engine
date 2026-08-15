@@ -66,6 +66,32 @@ def test_twelvedata_normalize_rejects_empty_window():
         )
 
 
+def test_twelvedata_normalize_drops_closed_session_filler():
+    timestamps = pd.date_range("2024-01-05 23:00:00", periods=4, freq="30min", tz="UTC")
+    payload = {
+        "status": "ok",
+        "values": [
+            {
+                "datetime": ts.strftime("%Y-%m-%d %H:%M:%S"),
+                "open": "1.10",
+                "high": "1.12",
+                "low": "1.09",
+                "close": "1.11",
+                "volume": "100",
+            }
+            for ts in timestamps
+        ],
+    }
+    frame = TwelveDataProvider._normalize(
+        payload,
+        datetime(2024, 1, 1, tzinfo=timezone.utc),
+        datetime(2024, 1, 8, tzinfo=timezone.utc),
+    )
+    assert len(frame) == 2
+    assert frame["timestamp"].iloc[0].dayofweek == 4
+    assert (frame["timestamp"].dt.dayofweek != 5).all()
+
+
 def test_twelvedata_requires_terms_and_key(tmp_path, monkeypatch):
     monkeypatch.delenv("OMEGA_TWELVEDATA_API_KEY", raising=False)
     with pytest.raises(PermissionError, match="terms"):
@@ -153,15 +179,19 @@ class FakeSequentialProvider(HistoricalDataProvider):
 
     def fetch(self, request):
         self.calls.append(request.key)
-        timestamps = pd.date_range(request.start, periods=3, freq="30min", tz="UTC")
+        timestamps = pd.date_range(request.start, request.end, freq="30min", tz="UTC", inclusive="left")
+        ts = pd.Series(timestamps)
+        mask = ~((ts.dt.dayofweek == 5) | ((ts.dt.dayofweek == 6) & (ts.dt.hour < 20)))
+        timestamps = ts[mask]
+        n = len(timestamps)
         frame = pd.DataFrame(
             {
                 "timestamp": timestamps,
-                "open": [1.10, 1.11, 1.12],
-                "high": [1.12, 1.13, 1.14],
-                "low": [1.09, 1.10, 1.11],
-                "close": [1.11, 1.12, 1.13],
-                "spread": [0.0001, 0.0001, 0.0001],
+                "open": [1.10] * n,
+                "high": [1.12] * n,
+                "low": [1.09] * n,
+                "close": [1.11] * n,
+                "spread": [0.0001] * n,
             }
         )
         return b'{"fixture":true}', frame, {"name": self.name, "retrieved_at": datetime.now(timezone.utc).isoformat()}
@@ -231,14 +261,14 @@ def test_load_dataset_concatenates_and_deduplicates(tmp_path, monkeypatch):
     )
     panel = load_dataset(config=CONFIG, project_root=tmp_path, start="2024-01-01T00:00:00Z", end="2024-03-01T00:00:00Z")
     assert panel["timestamp"].is_unique
-    assert len(panel) == 6
+    assert len(panel) > 6
     assert panel["timestamp"].min() == pd.Timestamp("2024-01-01 00:00:00", tz="UTC")
 
 
 def test_load_dataset_raises_when_partitions_missing(tmp_path, monkeypatch):
     monkeypatch.setenv("OMEGA_DATA_ROOT", str(tmp_path / "data"))
     monkeypatch.setenv("OMEGA_RUN_ROOT", str(tmp_path / "runs"))
-    with pytest.raises(Exception, match="No complete partitions"):
+    with pytest.raises(Exception, match="missing or incomplete"):
         load_dataset(config=CONFIG, project_root=tmp_path, start="2024-01-01T00:00:00Z", end="2024-03-01T00:00:00Z")
 
 

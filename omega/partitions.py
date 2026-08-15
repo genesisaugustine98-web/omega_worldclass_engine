@@ -37,11 +37,11 @@ class PartitionOrchestrator:
         self.ledger = ledger
         self.provider = provider
 
-    def acquire(self, request: PartitionRequest, require_spread: bool = True) -> dict:
+    def acquire(self, request: PartitionRequest, require_spread: bool = True, force: bool = False) -> dict:
         stage_key = f"download/{self.provider.name}/{request.key}"
         manifest_key = f"manifests/{self.provider.name}/{request.key}.json"
         with self.ledger.stage(stage_key, request=asdict(request)) as should_run:
-            if not should_run:
+            if not should_run and not force:
                 if not self.store.exists(manifest_key):
                     raise RuntimeError(f"Ledger says complete but manifest is missing: {manifest_key}")
                 return self.store.read_json(manifest_key)

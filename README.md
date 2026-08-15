@@ -111,11 +111,22 @@ python scripts/acquire_history.py --config config/cloud_twelvedata.yaml \
   --refresh --max-partitions 12 --accept-provider-terms
 ```
 
-`--refresh` fetches only monthly partitions that are missing or incomplete;
-months already stored are never re-fetched, so repeated runs are cheap and
-idempotent. The result reports `fetched_partitions`, `skipped_partitions`, and
+`--refresh` fetches only monthly partitions that are missing **or incomplete**. A
+manifest existing is not proof of completeness: free tiers can truncate responses
+(see Twelve Data's point cap below), and a stored month whose bars don't span the
+full calendar month is automatically re-fetched. Months already stored complete
+are never re-fetched, so repeated runs are cheap and idempotent. The current
+calendar month is exempt from the completeness rule (it is still being produced).
+The result reports `fetched_partitions`, `skipped_partitions`, and
 `already_present`, plus a cross-partition integrity audit. Bounds the run with
 `--max-partitions`.
+
+**Twelve Data coverage note.** The free tier returns a rolling window capped at
+~5000 points and fills the closed FX market (Saturday and Sunday before 20:00
+UTC) with flat zero-volume bars. The adapter therefore requests each month with
+explicit `start_date`/`end_date` (so history back to 2022 is reachable) and
+drops the zero-volume closed-market bars so every stored bar is a real trade on
+the FX calendar.
 
 ### Refresh-then-train in one command
 

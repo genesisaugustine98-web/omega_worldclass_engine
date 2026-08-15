@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 import pandas as pd
 
 from ..errors import ProviderError
-from .base import HistoricalDataProvider, PartitionRequest, ProviderRateLimiter, provider_get
+from .base import HistoricalDataProvider, PartitionRequest, ProviderRateLimiter, fx_calendar_mask, provider_get
 
 logger = logging.getLogger("omega.providers.twelvedata")
 
@@ -54,15 +54,17 @@ class TwelveDataProvider(HistoricalDataProvider):
     def fetch(self, request: PartitionRequest) -> tuple[bytes, pd.DataFrame, dict]:
         if request.instrument not in self.SYMBOL_MAP:
             raise ProviderError(f"Twelve Data has no free FX symbol for {request.instrument}")
+        start = request.start.astimezone(timezone.utc)
+        end = request.end.astimezone(timezone.utc)
         params = {
             "symbol": self.SYMBOL_MAP[request.instrument],
             "interval": "30min",
             "outputsize": "5000",
             "timezone": "UTC",
+            "start_date": start.strftime("%Y-%m-%d %H:%M:%S"),
+            "end_date": end.strftime("%Y-%m-%d %H:%M:%S"),
             "apikey": self.api_key,
         }
-        start = request.start.astimezone(timezone.utc)
-        end = request.end.astimezone(timezone.utc)
         url = "https://api.twelvedata.com/time_series?" + urllib.parse.urlencode(params)
         self.rate_limiter.wait()
         try:
@@ -121,6 +123,7 @@ class TwelveDataProvider(HistoricalDataProvider):
                 raise ValueError(f"malformed time series row: {row}") from exc
         frame = pd.DataFrame.from_records(records)
         frame["timestamp"] = pd.to_datetime(frame["timestamp"], utc=True, errors="raise")
+        frame = frame[fx_calendar_mask(frame["timestamp"])]
         frame = frame.sort_values("timestamp").reset_index(drop=True)
         start_ts = pd.Timestamp(start)
         end_ts = pd.Timestamp(end)
