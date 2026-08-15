@@ -9,7 +9,7 @@ runtime:
   fail_if_storage_missing: true
 data_source:
   provider: twelvedata
-  explicit_terms_accepted: false
+  explicit_terms_accepted: true
   instrument: EUR_USD
   granularity: M30
   start: "2023-01-01T00:00:00Z"
