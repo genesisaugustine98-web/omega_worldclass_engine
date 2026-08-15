@@ -64,6 +64,21 @@ def test_secret_loader_reports_status_without_returning_values(monkeypatch):
     assert "private-token" not in json.dumps(status)
 
 
+def test_bootstrap_reports_provider_key_presence_only(monkeypatch):
+    monkeypatch.setenv("OMEGA_DATA_ROOT", "/tmp/omega-boot-provider-data")
+    monkeypatch.setenv("OMEGA_RUN_ROOT", "/tmp/omega-boot-provider-runs")
+    monkeypatch.delenv("OMEGA_TWELVEDATA_API_KEY", raising=False)
+    monkeypatch.delenv("OMEGA_POLYGON_API_KEY", raising=False)
+    report = bootstrap("/tmp", required_free_bytes=1)
+    assert report.twelvedata_key_present is False
+    assert report.polygon_key_present is False
+    monkeypatch.setenv("OMEGA_TWELVEDATA_API_KEY", "not-a-real-key")
+    report2 = bootstrap("/tmp", required_free_bytes=1)
+    assert report2.twelvedata_key_present is True
+    assert report2.polygon_key_present is False
+    assert "not-a-real-key" not in json.dumps(report2.as_dict())
+
+
 def test_capacity_report_never_selects_raw_data(tmp_path):
     (tmp_path / "raw").mkdir()
     (tmp_path / "raw" / "immutable.bin").write_bytes(b"raw")

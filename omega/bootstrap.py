@@ -22,6 +22,8 @@ class BootstrapReport:
     required_free_bytes: int
     telegram_configured: bool
     dependencies_ok: bool
+    twelvedata_key_present: bool
+    polygon_key_present: bool
 
     def as_dict(self) -> dict:
         return asdict(self)
@@ -66,6 +68,8 @@ def bootstrap(project_root: str | Path | None = None, required_free_bytes: int =
         required_free_bytes=required_free_bytes,
         telegram_configured=bool(secret_status["OMEGA_TELEGRAM_BOT_TOKEN"] and secret_status["OMEGA_TELEGRAM_CHAT_ID"]),
         dependencies_ok=dependencies_ok,
+        twelvedata_key_present=bool(secret_status.get("OMEGA_TWELVEDATA_API_KEY")),
+        polygon_key_present=bool(secret_status.get("OMEGA_POLYGON_API_KEY")),
     )
 
 

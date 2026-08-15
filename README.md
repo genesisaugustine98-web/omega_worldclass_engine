@@ -58,9 +58,13 @@ python scripts/pressure_test.py   # 68 scenarios, expects 0 WEAK/FAIL
 
 ## Colab
 
-Open notebooks in `colab/` in numerical order. Mount Drive, clone/copy this repository, install requirements, and set `OMEGA_DATA_ROOT=/content/drive/MyDrive/OMEGA_DATA_v2`. Real vendor downloads are deliberately not automatic until source access, terms, coverage, and credentials are confirmed.
+Open notebooks in `colab/` in numerical order. Mount Drive, clone this repository, install requirements, and set `OMEGA_DATA_ROOT=/content/drive/MyDrive/OMEGA_DATA_v2`. Real vendor downloads are deliberately not automatic until source access, terms, coverage, and credentials are confirmed.
 
-Run `colab/00_BOOTSTRAP_COLAB.ipynb` first. Kaggle fallback uses `colab/00_BOOTSTRAP_KAGGLE.ipynb`; both perform dependency and writable-storage checks and do not bypass provider terms.
+Run `colab/00_BOOTSTRAP_COLAB.ipynb` first: it clones the repo, installs dependencies, mounts Drive, and reports which provider credentials are present in Colab's `userdata` store (presence only — never values). Kaggle fallback uses `colab/00_BOOTSTRAP_KAGGLE.ipynb`.
+
+Then `colab/01_AUTO_REFRESH_AND_TRAIN.ipynb` is the self-refreshing free-data path: it pulls latest code, loads your provider secrets, calls `refresh_dataset()` to download only missing/incomplete months into Drive, `load_dataset()` into a validated panel, and runs the research pipeline with per-stage checkpointing. Re-running it only fetches new months. Set `explicit_terms_accepted: true` in the chosen cloud config (`config/cloud_twelvedata.yaml` or `config/cloud_polygon.yaml`) after reviewing the provider terms, and store `OMEGA_TWELVEDATA_API_KEY` (or `OMEGA_POLYGON_API_KEY`) in Colab's `userdata` panel.
+
+Notebooks `02`–`05` cover feature/label exploration, training baselines, backtest/attribution, and the research sandbox.
 
 ## Bounded history acquisition
 
