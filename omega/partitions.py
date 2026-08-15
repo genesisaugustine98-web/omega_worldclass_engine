@@ -9,6 +9,7 @@ from pathlib import Path
 
 import pandas as pd
 
+from .errors import IntegrityError
 from .providers.base import HistoricalDataProvider, PartitionRequest
 from .state import StageLedger, utc_now
 from .storage import FileStore
@@ -102,3 +103,79 @@ def dataset_manifest(store: FileStore, provider: str, instrument: str) -> dict:
         "partition_hashes": leaves,
         "dataset_root_sha256": root_hash,
     }
+
+
+def overlap_advisory(store: FileStore, provider: str, instrument: str, months: list[str]) -> list[dict]:
+    """Report other provider namespaces that already hold the same calendar
+    months for the same instrument.
+
+    Different sources are intentionally separate namespaces and may be used
+    independently, so overlap is not an error here — but the engine surfaces it
+    so a researcher never silently trains a panel on bars they believe came
+    from a single source.
+    """
+    manifest_root = store.path("manifests")
+    if not manifest_root.exists():
+        return []
+    overlaps: list[dict] = []
+    for other in sorted(p for p in manifest_root.iterdir() if p.is_dir() and p.name != provider):
+        for month in sorted(months):
+            if (manifest_root / other.name / instrument / f"{month}.json").exists():
+                overlaps.append({"other_provider": other.name, "instrument": instrument, "month": month})
+    return overlaps
+
+
+def check_dataset_integrity(
+    store: FileStore, provider: str, instrument: str, raise_on_duplicate: bool = True
+) -> dict:
+    """Audit a provider/instrument dataset for cross-partition violations.
+
+    Each monthly partition is validated independently at write time, which
+    cannot detect a bar that appears in two partitions (a broker export that
+    repeats the boundary bar, or overlapping imports). This loads every
+    normalized partition and verifies global timestamp uniqueness so a
+    duplicate bar can never silently enter a training panel.
+
+    Returns a report with per-partition row counts and any duplicate
+    timestamps. Raises IntegrityError when duplicates exist and
+    ``raise_on_duplicate`` is true.
+    """
+    manifest_root = store.path(f"manifests/{provider}/{instrument}")
+    files = sorted(manifest_root.rglob("*.json")) if manifest_root.exists() else []
+
+    rows_by_partition: dict[str, int] = {}
+    timestamps: list[pd.Series] = []
+    for file in files:
+        month = f"{file.parent.name}/{file.stem}"
+        partition = json.loads(file.read_text(encoding="utf-8"))
+        key = f"normalized/{provider}/{instrument}/{month}/bars.parquet"
+        frame = pd.read_parquet(store.path(key), columns=["timestamp"])
+        rows_by_partition[month] = len(frame)
+        timestamps.append(pd.to_datetime(frame["timestamp"], utc=True))
+
+    duplicate_rows: dict[str, int] = {}
+    if timestamps:
+        combined = pd.concat(timestamps, ignore_index=True)
+        counts = combined.value_counts()
+        duplicates = counts[counts > 1]
+        if not duplicates.empty:
+            duplicate_rows = {str(index): int(value) for index, value in duplicates.items()}
+
+    report = {
+        "schema_version": 1,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "provider": provider,
+        "instrument": instrument,
+        "partition_count": len(files),
+        "total_rows": int(sum(rows_by_partition.values())),
+        "rows_by_partition": rows_by_partition,
+        "duplicate_timestamp_count": len(duplicate_rows),
+        "duplicate_timestamps": duplicate_rows,
+    }
+    if duplicate_rows and raise_on_duplicate:
+        examples = ", ".join(sorted(duplicate_rows)[:5])
+        raise IntegrityError(
+            f"Dataset {provider}/{instrument} contains bars present in more than one "
+            f"partition ({len(duplicate_rows)} duplicated timestamps; e.g. {examples})"
+        )
+    return report

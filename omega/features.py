@@ -49,6 +49,9 @@ def build_features(df, windows=(2,4,8,16,48), include_time=True):
     remove using the training-period policy.
     """
     _require_causal_input(df)
+    windows = tuple(windows)
+    if not windows or any(not isinstance(w, int) or w <= 0 for w in windows):
+        raise ValueError("windows must be a non-empty tuple/list of positive integers")
     out=pd.DataFrame(index=df.index)
     for name, meta in REGISTRY.items():
         for w in windows: out[f"{name}_{w}"]=meta["function"](df,w)

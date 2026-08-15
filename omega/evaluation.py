@@ -9,9 +9,16 @@ class TemporalSplit:
     train: np.ndarray; calibration: np.ndarray; test: np.ndarray
 
 def walk_forward_splits(n, train_bars, test_bars, step_bars, embargo_bars, calibration_fraction=.2):
+    if not (0.0 < calibration_fraction < 1.0):
+        raise ValueError("calibration_fraction must be in (0, 1)")
+    if train_bars < 2:
+        raise ValueError("train_bars must be at least 2 so a calibration split can be carved out")
     end=train_bars
     while end + embargo_bars + test_bars <= n:
-        cal_size=max(100,int(train_bars*calibration_fraction)); train=np.arange(end-train_bars,end-cal_size)
+        cal_size=max(100,int(train_bars*calibration_fraction))
+        if cal_size >= train_bars:
+            cal_size = train_bars - 1
+        train=np.arange(end-train_bars,end-cal_size)
         calibration=np.arange(end-cal_size,end); test=np.arange(end+embargo_bars,end+embargo_bars+test_bars)
         yield TemporalSplit(train,calibration,test); end += step_bars
 

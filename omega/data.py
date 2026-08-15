@@ -53,10 +53,16 @@ def normalize_to_parquet(df, path, source="unknown", symbol="unknown"):
     return path
 
 def synthetic_fx(n=8000, seed=42, start="2020-01-05 22:00:00+00:00"):
-    """Deterministic synthetic fixture; never represented as market history."""
+    """Deterministic synthetic fixture; never represented as market history.
+
+    Generates enough candidate bars that the weekday filter always yields at
+    least ``n`` rows for any ``n >= 1``, so the fixture never crashes or
+    silently returns fewer bars than requested.
+    """
     rng = np.random.default_rng(seed)
-    ts = pd.date_range(start, periods=n * 2, freq="30min", tz="UTC")
+    ts = pd.date_range(start, periods=int(n * 2.6) + 20, freq="30min", tz="UTC")
     ts = ts[ts.dayofweek < 5][:n]
+    n = len(ts)
     vol = np.where((np.arange(n)//700)%2, 0.00045, 0.00015)
     ret = rng.normal(0, vol) + np.sin(np.arange(n)/150) * 0.00003
     close = 1.10 * np.exp(np.cumsum(ret)); open_ = np.r_[close[0], close[:-1]]

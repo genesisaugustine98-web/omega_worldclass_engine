@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from .partitions import dataset_manifest
+from .partitions import check_dataset_integrity, dataset_manifest, overlap_advisory
 from .storage import FileStore
 from .utils import sha256_file
 from .validation import validate
@@ -103,6 +103,10 @@ def import_history_file(
                 store.write_json_atomic(item["manifest_key"], manifest)
             manifests.append(manifest)
 
+    integrity = check_dataset_integrity(store, provider_name, instrument)
+    covered_months = sorted({f"{m.parent.name}/{m.stem}" for m in store.path(f"manifests/{provider_name}/{instrument}").rglob("*.json")})
+    overlaps = overlap_advisory(store, provider_name, instrument, covered_months)
+
     return {
         "mode": "local_import",
         "source": source,
@@ -111,6 +115,8 @@ def import_history_file(
         "rows": len(frame),
         "partition_count": len(manifests),
         "manifests": manifests,
+        "integrity": integrity,
+        "overlap_advisory": overlaps,
         "dataset": dataset_manifest(store, provider_name, instrument),
     }
 

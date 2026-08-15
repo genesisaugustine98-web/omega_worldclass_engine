@@ -9,7 +9,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from omega.acquisition import run_acquisition
+from omega.acquisition import refresh_dataset, run_acquisition
 from omega.cloud_config import load_cloud_config
 from omega.secrets import load_platform_secrets
 
@@ -22,6 +22,7 @@ def parser() -> argparse.ArgumentParser:
     command.add_argument("--max-partitions", type=int, default=1)
     command.add_argument("--execute", action="store_true", help="Perform network and storage operations; default is dry-run")
     command.add_argument("--accept-provider-terms", action="store_true", help="Confirm terms review for this execution")
+    command.add_argument("--refresh", action="store_true", help="Fetch only missing partitions (skip complete months)")
     return command
 
 
@@ -29,15 +30,25 @@ def main(argv: list[str] | None = None) -> int:
     args = parser().parse_args(argv)
     load_platform_secrets()
     config = load_cloud_config(args.config)
-    result = run_acquisition(
-        config=config,
-        project_root=ROOT,
-        start=args.start,
-        end=args.end,
-        execute=args.execute,
-        accept_provider_terms=args.accept_provider_terms,
-        max_partitions=args.max_partitions,
-    )
+    if args.refresh:
+        result = refresh_dataset(
+            config=config,
+            project_root=ROOT,
+            start=args.start,
+            end=args.end,
+            accept_provider_terms=args.accept_provider_terms,
+            max_partitions=args.max_partitions,
+        )
+    else:
+        result = run_acquisition(
+            config=config,
+            project_root=ROOT,
+            start=args.start,
+            end=args.end,
+            execute=args.execute,
+            accept_provider_terms=args.accept_provider_terms,
+            max_partitions=args.max_partitions,
+        )
     print(json.dumps(result, indent=2, default=str))
     return 0
 

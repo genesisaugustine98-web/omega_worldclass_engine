@@ -1,14 +1,22 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
+import urllib.error
 import urllib.parse
 import urllib.request
 from datetime import datetime, timezone
 
 import pandas as pd
 
+from ..errors import ProviderError
+from ..utils import retry
 from .base import HistoricalDataProvider, PartitionRequest
+
+logger = logging.getLogger("omega.providers.oanda")
+
+MAX_RESPONSE_BYTES = 64 * 1024 * 1024
 
 
 class OandaProvider(HistoricalDataProvider):
@@ -29,6 +37,7 @@ class OandaProvider(HistoricalDataProvider):
         if not self.token:
             raise RuntimeError("OMEGA_OANDA_TOKEN is required at runtime and must not be committed")
         self.environment = environment
+        self.request_timeout_seconds = 60
 
     @property
     def base_url(self) -> str:
@@ -45,11 +54,26 @@ class OandaProvider(HistoricalDataProvider):
             }
         )
         url = f"{self.base_url}/instruments/{request.instrument}/candles?{params}"
-        message = urllib.request.Request(url, headers={"Authorization": f"Bearer {self.token}"})
-        with urllib.request.urlopen(message, timeout=60) as response:
-            raw = response.read()
-        payload = json.loads(raw)
-        frame = self._normalize(payload)
+        try:
+            raw = self._request(url)
+        except urllib.error.HTTPError as exc:
+            raise ProviderError(
+                f"OANDA HTTP {exc.code} for {request.key}: {exc.reason}"
+            ) from exc
+        except urllib.error.URLError as exc:
+            raise ProviderError(f"OANDA request failed for {request.key}: {exc.reason}") from exc
+        if len(raw) > MAX_RESPONSE_BYTES:
+            raise ProviderError(
+                f"OANDA response for {request.key} exceeds {MAX_RESPONSE_BYTES} bytes; refusing to parse"
+            )
+        try:
+            payload = json.loads(raw)
+        except json.JSONDecodeError as exc:
+            raise ProviderError(f"OANDA returned invalid JSON for {request.key}") from exc
+        try:
+            frame = self._normalize(payload)
+        except (ValueError, KeyError) as exc:
+            raise ProviderError(f"OANDA payload failed normalization for {request.key}: {exc}") from exc
         metadata = {
             "name": self.name,
             "environment": self.environment,
@@ -59,6 +83,20 @@ class OandaProvider(HistoricalDataProvider):
             "coverage_not_guaranteed": True,
         }
         return raw, frame, metadata
+
+    @retry(
+        attempts=4,
+        base_delay=1.0,
+        max_delay=12.0,
+        exceptions=(urllib.error.URLError, TimeoutError, ConnectionError),
+        on_retry=lambda attempt, delay, exc: logger.warning(
+            "OANDA transient failure (attempt %d): %s; retrying in %.1fs", attempt, exc, delay
+        ),
+    )
+    def _request(self, url: str) -> bytes:
+        message = urllib.request.Request(url, headers={"Authorization": f"Bearer {self.token}"})
+        with urllib.request.urlopen(message, timeout=self.request_timeout_seconds) as response:
+            return response.read()
 
     @staticmethod
     def _normalize(payload: dict) -> pd.DataFrame:
