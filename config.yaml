@@ -36,6 +36,8 @@ evaluation:
 models:
   logistic: true
   hist_gradient_boosting: true
+  lightgbm: true
+  catboost: true
   tft: false
   tabpfn: false
   causal_transformer: false

@@ -598,8 +598,11 @@ category("pipeline")
 
 def pipeline_single_model():
     cfg = full_cfg()
-    cfg["models"]["hist_gradient_boosting"] = False
-    m2 = pipeline.run_pipeline(synthetic(6000), cfg, "/tmp/opencode/pressure/art_one")
+    for name in cfg["models"]:
+        cfg["models"][name] = name == "logistic"
+    import tempfile
+    with tempfile.TemporaryDirectory(prefix="omega-pressure-") as tmp:
+        m2 = pipeline.run_pipeline(synthetic(6000), cfg, Path(tmp) / "art")
     return m2
 m_one = pipeline_single_model()
 record("pipeline_single_model", "PASS" if not m_one.empty and set(m_one.model.unique()) == {"logistic"} else "FAIL",

@@ -172,6 +172,73 @@ In both cases set `data_source.end` (or pass `--end`) to a month boundary just
 past today so the current month is included; the current month is exempt from
 the completeness rule and is re-fetched until it ends.
 
+## Model zoo
+
+The pipeline trains every enabled model on identical temporal splits and
+compares each against the training-prevalence baseline.
+
+- **logistic** — ridge-regularized logistic regression with balanced class
+  weights. The fast, interpretable baseline.
+- **hist_gradient_boosting** — histogram gradient boosting (sklearn).
+- **lightgbm** — LightGBM boosting (`pip install lightgbm`).
+- **catboost** — CatBoost (`pip install catboost`).
+- **tabpfn** — TabPFN v2, a strong fit for small tabular panels
+  (`pip install tabpfn`).
+- **tft** — Temporal Fusion Transformer adapter (`pip install torch
+  pytorch-forecasting`); an intentionally simple probability wrapper that must
+  be validated before research use.
+
+Enable models in `config.yaml`; disable flags to keep a run light. Models whose
+optional dependency is missing are skipped with a warning instead of failing the
+pipeline, so the same config works on minimal installs. `tft` and `tabpfn` are
+off by default.
+
+```bash
+pip install -r requirements.txt lightgbm catboost   # or: pip install -e ".[ml]"
+python scripts/run_demo.py
+```
+
+## Free bulk history without an API key: Stooq
+
+Stooq's public CSV downloader provides free historical FX data with no key and
+no registration. `scripts/import_stooq.py` downloads a requested window and pipes
+it through the same provenance pipeline as any other import (content hashing,
+per-month validation, immutable storage, overlap audit).
+
+```bash
+# Dry-run first: prints the URL and symbol without downloading.
+python scripts/import_stooq.py --instrument EUR_USD --start 2024-01-01 --end 2024-06-01 --timezone UTC
+
+# Then execute (review stooq.com's terms first).
+python scripts/import_stooq.py --instrument EUR_USD --start 2024-01-01 --end 2024-06-01 \
+  --timezone UTC --execute --accept-provider-terms
+```
+
+- `--timezone` is **required**: Stooq emits exchange-local timestamps, and naive
+  timestamps cannot pass validation without an explicit timezone.
+- `--symbol` overrides the default symbol for a given instrument; defaults cover
+  the major pairs (`eurusd`, `gbpusd`, `usdjpy`, `usdchf`, `audusd`, `nzdusd`,
+  `usdcad`).
+- `--interval` supports Stooq's intraday codes (1/5/15/30/60 minutes); the
+  engine validates 30-minute bars only, so use 30 for a canonical panel.
+- Data lands under `OMEGA_DATA_ROOT` as a `local-stooq_v1` provider, so it
+  composes with `load_dataset`/`refresh_dataset` and the standard pipeline.
+- Stooq's FX history is intraday aggregate candles and may omit volume for some
+  pairs; zero-volume columns are dropped deterministically by the all-NaN
+  feature guard before `dropna()`.
+
+Other zero-cost depth options are supported through the generic importer
+(`scripts/import_history.py`): OANDA demo-account exports, MT4/MT5 history
+exports, and HistData.com downloads all map onto `ImportSchema` with an explicit
+timezone. For macro drivers, prefer ALFRED vintages over FRED latest-vintage
+(see Data source policy below).
+
+## CI
+
+`.github/workflows/ci.yml` runs the full test suite, the 68-scenario pressure
+campaign, and the synthetic demo on every push to `main` and pull request, so
+reliability regressions are caught before merge.
+
 ## Add a new SOTA paper in 10 minutes
 
 1. Add an exact citation and supported proposition to `docs/references.md`.
@@ -187,6 +254,6 @@ Adapters accept user-supplied CSV/Parquet. Dukascopy/HistData/news scraping is n
 
 ## Project status
 
-V1 prioritizes predictive benchmarking with causal hygiene. TFT, TabPFN, LLM news, causal graphs, graph neural networks, RL, and quantum-walk modules are opt-in research extensions, not default claims.
+V1 prioritizes predictive benchmarking with causal hygiene. TFT, TabPFN, LLM news, causal graphs, graph neural networks, RL, and quantum-walk modules are opt-in research extensions, not default claims. LightGBM and CatBoost are wired into the same temporal-split/calibration interface and enabled in the default config; TabPFN and TFT are registered but disabled until their adapters are validated.
 
 **CONVERSATION_HOOK:** Next upgrade candidates: point-in-time ALFRED adapter, quote-level spread adapter, TFT benchmark, and adaptive conformal calibration. The reliability pass (error taxonomy, retry/backoff, stale-lock recovery, resumable pipeline, cross-partition integrity audit, latency-honest backtest) is complete; see `docs/ANALYSIS.md` for the full audit.

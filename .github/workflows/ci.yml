@@ -1,0 +1,32 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.11"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+      - name: Install core dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+      - name: Install optional ML models (always-on so model coverage is tested)
+        run: |
+          pip install lightgbm catboost
+      - name: Run full test suite
+        run: python -m pytest tests/ -q
+      - name: Run pressure campaign
+        run: python scripts/pressure_test.py
+      - name: Run demo (synthetic, no network)
+        run: python scripts/run_demo.py

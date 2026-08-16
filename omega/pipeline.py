@@ -7,7 +7,7 @@ from .validation import validate
 from .features import build_features
 from .labels import label_phenomena, LABELS
 from .evaluation import walk_forward_splits, probability_metrics, expected_calibration_error
-from .models import make_model
+from .models import make_model, model_available
 from .backtest import hypothetical_state_response, attribution
 from .state import StageLedger
 from .utils import atomic_json, get_logger, seed_everything
@@ -61,9 +61,16 @@ def run_pipeline(df, cfg, artifact_dir="artifacts/run"):
         "all_nan_features": all_nan_features,
         "label_columns": LABELS,
     })
-    e=cfg["evaluation"]; enabled_models=[name for name,flag in [("logistic",cfg["models"]["logistic"]),("hist_gradient_boosting",cfg["models"]["hist_gradient_boosting"])] if flag]
+    e=cfg["evaluation"]
+    wanted_models=[name for name,flag in cfg["models"].items() if flag]
+    enabled_models=[]
+    for name in wanted_models:
+        if not model_available(name):
+            logger.warning("model %s enabled but unavailable (missing optional dependency); skipping", name)
+            continue
+        enabled_models.append(name)
     if not enabled_models:
-        raise ValueError("No models enabled; enable logistic or hist_gradient_boosting in config")
+        raise ValueError(f"No models could be enabled (wanted {wanted_models}); check config and install optional dependencies")
 
     run_id=f"pipeline-{cfg['project']['seed']}"
     ledger=StageLedger(art/"ledger.json",run_id)
@@ -136,7 +143,8 @@ def run_pipeline(df, cfg, artifact_dir="artifacts/run"):
     attrs=[]
     if not predictions.empty:
       for (label,name),g in predictions.groupby(["label","model"]): attrs.append(attribution(label,g.y.to_numpy(),g.p.to_numpy(),e["abstain_below"])|{"model":name})
-      trend=predictions[(predictions.label=="trend_ignition") & (predictions.model=="hist_gradient_boosting")]
+      trend_model = "hist_gradient_boosting" if "hist_gradient_boosting" in enabled_models else enabled_models[0]
+      trend=predictions[(predictions.label=="trend_ignition") & (predictions.model==trend_model)]
       if len(trend):
         bt_cfg=cfg.get("backtest",{})
         _, bt=hypothetical_state_response(trend.p,trend.forward_return,e["abstain_below"],bt_cfg.get("spread_bps",1.0),bt_cfg.get("slippage_bps",0.5),bt_cfg.get("annualization_bars",12480),label_cfg["horizon_bars"],bt_cfg.get("one_bar_latency",True)); atomic_json(art/"hypothetical_backtest.json",bt)

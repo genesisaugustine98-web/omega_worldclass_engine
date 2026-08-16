@@ -10,3 +10,4 @@ checkpoints/
 *.joblib
 *.parquet
 *.csv
+catboost_info/
