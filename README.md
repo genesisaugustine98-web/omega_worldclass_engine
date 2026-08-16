@@ -62,9 +62,11 @@ Open notebooks in `colab/` in numerical order. Mount Drive, clone this repositor
 
 Run `colab/00_BOOTSTRAP_COLAB.ipynb` first: it clones the repo, installs dependencies, mounts Drive, and reports which provider credentials are present in Colab's `userdata` store (presence only — never values). Kaggle fallback uses `colab/00_BOOTSTRAP_KAGGLE.ipynb`.
 
-Then `colab/01_AUTO_REFRESH_AND_TRAIN.ipynb` is the self-refreshing free-data path: it pulls latest code, loads your provider secrets, calls `refresh_dataset()` to download only missing/incomplete months into Drive, `load_dataset()` into a validated panel, and runs the research pipeline with per-stage checkpointing. Re-running it only fetches new months. Set `explicit_terms_accepted: true` in the chosen cloud config (`config/cloud_twelvedata.yaml` or `config/cloud_polygon.yaml`) after reviewing the provider terms, and store `OMEGA_TWELVEDATA_API_KEY` (or `OMEGA_POLYGON_API_KEY`) in Colab's `userdata` panel.
+`colab/01_AUTO_REFRESH_AND_TRAIN.ipynb` is the self-refreshing free-data path: it pulls latest code, loads your provider secrets, calls `refresh_dataset()` to download only missing/incomplete months into Drive, `load_dataset()` into a validated panel, and runs the research pipeline with per-stage checkpointing. Re-running it only fetches new months. Set `explicit_terms_accepted: true` in the chosen cloud config (`config/cloud_twelvedata.yaml` or `config/cloud_polygon.yaml`) after reviewing the provider terms, and store `OMEGA_TWELVEDATA_API_KEY` (or `OMEGA_POLYGON_API_KEY`) in Colab's `userdata` panel.
 
-Notebooks `02`–`05` cover feature/label exploration, training baselines, backtest/attribution, and the research sandbox.
+`colab/02_DEPTH_REFRESH_AND_TRAIN.ipynb` grows years of M30 history at $0: chunked, resumable TwelveData refresh across the target window, an optional browser-downloaded Stooq CSV import, then load-and-train on the multi-year panel.
+
+Notebooks `03`–`05` cover feature/label exploration, training baselines, backtest/attribution, and the research sandbox.
 
 ## Bounded history acquisition
 
@@ -198,20 +200,23 @@ pip install -r requirements.txt lightgbm catboost   # or: pip install -e ".[ml]"
 python scripts/run_demo.py
 ```
 
-## Free bulk history without an API key: Stooq
+## Free bulk history: Stooq (browser-download required)
 
 Stooq's public CSV downloader provides free historical FX data with no key and
-no registration. `scripts/import_stooq.py` downloads a requested window and pipes
-it through the same provenance pipeline as any other import (content hashing,
-per-month validation, immutable storage, overlap audit).
+no registration. Note that Stooq currently answers automated requests with a
+JavaScript bot-wall, so the supported flow is: print the download URL, open it
+in a browser, save the CSV, and import the file through the same provenance
+pipeline as any other source (content hashing, per-month validation, immutable
+storage, overlap audit). The engine never attempts to bypass Stooq's bot
+detection.
 
 ```bash
-# Dry-run first: prints the URL and symbol without downloading.
-python scripts/import_stooq.py --instrument EUR_USD --start 2024-01-01 --end 2024-06-01 --timezone UTC
+# Print the URL to open in a browser.
+python scripts/import_stooq.py --instrument EUR_USD --start 2024-01-01 --end 2024-06-01 --timezone UTC --url-only
 
-# Then execute (review stooq.com's terms first).
-python scripts/import_stooq.py --instrument EUR_USD --start 2024-01-01 --end 2024-06-01 \
-  --timezone UTC --execute --accept-provider-terms
+# Import the CSV you saved in the browser (review stooq.com's terms first).
+python scripts/import_stooq.py downloaded.csv --instrument EUR_USD \
+  --start 2024-01-01 --end 2024-06-01 --timezone UTC
 ```
 
 - `--timezone` is **required**: Stooq emits exchange-local timestamps, and naive
@@ -227,11 +232,31 @@ python scripts/import_stooq.py --instrument EUR_USD --start 2024-01-01 --end 202
   pairs; zero-volume columns are dropped deterministically by the all-NaN
   feature guard before `dropna()`.
 
-Other zero-cost depth options are supported through the generic importer
-(`scripts/import_history.py`): OANDA demo-account exports, MT4/MT5 history
-exports, and HistData.com downloads all map onto `ImportSchema` with an explicit
-timezone. For macro drivers, prefer ALFRED vintages over FRED latest-vintage
-(see Data source policy below).
+## Multi-year M30 depth strategy
+
+The short panel is the real bottleneck for walk-forward training. To grow
+years of M30 history at $0 without hitting free-tier caps in one run:
+
+1. **TwelveData chunked refresh.** `refresh_dataset` is resumable and bounded,
+   so run it over a multi-year window with `--max-partitions N` and re-run until
+   `already_present` covers the window. Each run appends the next N months;
+   the stage ledger makes re-runs cheap and idempotent.
+   ```bash
+   python scripts/acquire_history.py --config config/cloud_twelvedata.yaml \
+     --start 2022-01-01T00:00:00Z --end 2026-09-01T00:00:00Z \
+     --refresh --max-partitions 6 --accept-provider-terms
+   ```
+2. **Stooq browser download** for pairs/periods TwelveData's free tier does not
+   cover (flow above).
+3. **Other zero-cost exports** through `scripts/import_history.py`: OANDA
+   demo-account exports, MT4/MT5 history exports, and HistData.com downloads all
+   map onto `ImportSchema` with an explicit timezone.
+4. For macro drivers, prefer ALFRED vintages over FRED latest-vintage (see Data
+   source policy below).
+
+`colab/02_DEPTH_REFRESH_AND_TRAIN.ipynb` automates the full depth flow: it pulls
+latest code, runs the chunked TwelveData refresh, optionally imports an uploaded
+Stooq CSV, then loads the multi-year panel and trains.
 
 ## CI
 

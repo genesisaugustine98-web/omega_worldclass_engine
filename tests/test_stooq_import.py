@@ -1,7 +1,12 @@
 import pandas as pd
 import pytest
 
-from scripts.import_stooq import INSTRUMENT_SYMBOLS, parse_stooq_csv, stooq_url
+from scripts.import_stooq import (
+    INSTRUMENT_SYMBOLS,
+    fetch_stooq_csv,
+    parse_stooq_csv,
+    stooq_url,
+)
 
 SAMPLE = """Date,Time,Open,High,Low,Close,Volume
 2024-01-02,00:00:00,1.10420,1.10440,1.10410,1.10430,0
@@ -40,6 +45,48 @@ def test_parse_stooq_csv_missing_column_is_rejected():
 def test_instrument_symbols_cover_common_majors():
     assert INSTRUMENT_SYMBOLS["EUR_USD"] == "eurusd"
     assert INSTRUMENT_SYMBOLS["USD_JPY"] == "usdjpy"
+
+
+def test_fetch_detects_bot_wall_html(monkeypatch):
+    class FakeResponse:
+        def __init__(self, payload):
+            self._payload = payload
+        def __enter__(self):
+            return self
+        def __exit__(self, *args):
+            return False
+        def read(self):
+            return self._payload
+
+    from omega.errors import ProviderError
+
+    html = b"<!DOCTYPE html><html><body>challenge</body></html>"
+    calls = []
+
+    def fake_urlopen(request, timeout=30):
+        calls.append(request)
+        return FakeResponse(html)
+
+    monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
+    monkeypatch.setattr("urllib.request.Request", lambda url, headers=None: object())
+    with pytest.raises(ProviderError, match="bot-wall"):
+        fetch_stooq_csv("https://stooq.com/q/d/l/?s=eurusd&i=30")
+
+
+def test_fetch_returns_csv_when_not_blocked(monkeypatch):
+    class FakeResponse:
+        def __init__(self, payload):
+            self._payload = payload
+        def __enter__(self):
+            return self
+        def __exit__(self, *args):
+            return False
+        def read(self):
+            return self._payload
+
+    monkeypatch.setattr("urllib.request.urlopen", lambda request, timeout=30: FakeResponse(SAMPLE.encode()))
+    monkeypatch.setattr("urllib.request.Request", lambda url, headers=None: object())
+    assert fetch_stooq_csv("https://stooq.com/q/d/l/?s=eurusd&i=30") == SAMPLE
 
 
 def test_roundtrip_through_import_schema(tmp_path):

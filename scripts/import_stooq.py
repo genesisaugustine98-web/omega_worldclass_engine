@@ -4,7 +4,6 @@ import argparse
 import json
 import sys
 import urllib.parse
-import urllib.request
 from datetime import datetime
 from pathlib import Path
 
@@ -14,6 +13,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from omega.errors import ProviderError
 from omega.local_import import ImportSchema, import_history_file
 from omega.runtime import RuntimePaths
 
@@ -30,6 +30,8 @@ INSTRUMENT_SYMBOLS = {
     "NZD_USD": "nzdusd",
     "USD_CAD": "usdcad",
 }
+
+HTML_SNIFF = b"<!DOCTYPE html"
 
 
 def stooq_url(symbol: str, interval: int, start: str, end: str) -> str:
@@ -49,9 +51,26 @@ def stooq_url(symbol: str, interval: int, start: str, end: str) -> str:
 
 
 def fetch_stooq_csv(url: str, timeout: float = 30.0) -> str:
-    """Download the stooq CSV response with a bounded timeout."""
-    with urllib.request.urlopen(url, timeout=timeout) as response:
-        return response.read().decode("utf-8")
+    """Download the stooq CSV response with a bounded timeout.
+
+    Stooq currently answers automated requests with a JavaScript bot-wall
+    (an HTML challenge page, not CSV). This is detected and surfaced as a
+    ProviderError so the caller can switch to the browser-download path
+    instead of silently importing HTML.
+    """
+    import urllib.request
+
+    request = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+    with urllib.request.urlopen(request, timeout=timeout) as response:
+        raw = response.read()
+    if raw.lstrip().startswith(HTML_SNIFF):
+        raise ProviderError(
+            "stooq.com answered with a JavaScript bot-wall instead of data. "
+            "Automated bulk download is blocked; download the CSV manually in a "
+            "browser (this script's --url-only mode prints the exact URL) and "
+            "re-run with the file path argument."
+        )
+    return raw.decode("utf-8")
 
 
 def parse_stooq_csv(text: str) -> pd.DataFrame:
@@ -85,8 +104,15 @@ def parse_stooq_csv(text: str) -> pd.DataFrame:
 
 def parser() -> argparse.ArgumentParser:
     command = argparse.ArgumentParser(
-        description="Download free stooq.com M30 FX history and import it through the provenance pipeline"
+        description=(
+            "Import Stooq M30 FX history through the provenance pipeline. "
+            "Stooq blocks automated downloads with a bot-wall, so the flow is: "
+            "print the URL (--url-only), download it in a browser, then pass the "
+            "saved CSV file as the positional argument to import it."
+        )
     )
+    command.add_argument("path", nargs="?", type=Path,
+                         help="Local stooq CSV already downloaded in a browser")
     command.add_argument("--instrument", default="EUR_USD",
                          help="Canonical instrument; maps to a stooq symbol unless --symbol is given")
     command.add_argument("--symbol", help="Explicit stooq symbol (lowercase, no separator), e.g. eurusd")
@@ -99,8 +125,10 @@ def parser() -> argparse.ArgumentParser:
     command.add_argument("--source", default="stooq_v1",
                          help="Stable source identifier; change it to keep distinct raw versions immutable")
     command.add_argument("--data-root", type=Path)
+    command.add_argument("--url-only", action="store_true",
+                         help="Print the download URL and exit without fetching")
     command.add_argument("--execute", action="store_true",
-                         help="Perform the download and import; default is dry-run (report URL and row plan only)")
+                         help="Attempt the automated download; the browser-download path is recommended")
     command.add_argument("--accept-provider-terms", action="store_true",
                          help="Confirm you have reviewed stooq.com's terms of use for this download")
     return command
@@ -108,10 +136,6 @@ def parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     args = parser().parse_args(argv)
-    if not args.execute and not args.accept_provider_terms:
-        print("Dry-run: review the URL and terms before executing (pass --execute --accept-provider-terms).")
-    if args.execute and not args.accept_provider_terms:
-        parser().error("--execute requires --accept-provider-terms (review stooq.com terms first)")
 
     symbol = args.symbol or INSTRUMENT_SYMBOLS.get(args.instrument)
     if not symbol:
@@ -123,11 +147,25 @@ def main(argv: list[str] | None = None) -> int:
     url = stooq_url(symbol, args.interval, args.start, args.end)
     report = {"url": url, "symbol": symbol, "instrument": args.instrument, "interval_minutes": args.interval}
 
-    if not args.execute:
-        print(json.dumps(report, indent=2))
+    if args.url_only:
+        print(url)
         return 0
 
-    text = fetch_stooq_csv(url)
+    if args.path is None:
+        if not args.execute:
+            print(json.dumps(report, indent=2))
+            print("Open the URL above in a browser to download the CSV, then re-run with that file path.")
+            return 0
+        if not args.accept_provider_terms:
+            parser().error("--execute requires --accept-provider-terms (review stooq.com terms first)")
+        text = fetch_stooq_csv(url)
+    else:
+        path = Path(args.path).resolve()
+        if not path.is_file():
+            parser().error(f"CSV file not found: {path}")
+        text = path.read_text(encoding="utf-8")
+        report["mode"] = "local_file"
+
     frame = parse_stooq_csv(text)
     report["rows_downloaded"] = len(frame)
     if frame.empty:
@@ -136,9 +174,8 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     data_root = args.data_root or RuntimePaths.detect(ROOT).data_root
-    timestamp_format = "%Y-%m-%d %H:%M:%S"
     result = import_history_file(
-        _write_temp_csv(frame),
+        args.path if args.path is not None else _write_temp_csv(frame),
         data_root=data_root,
         source=args.source,
         instrument=args.instrument,
@@ -150,7 +187,7 @@ def main(argv: list[str] | None = None) -> int:
             close="close",
             volume="volume" if "volume" in frame.columns else None,
             timezone=args.timezone,
-            timestamp_format=timestamp_format,
+            timestamp_format="%Y-%m-%d %H:%M:%S",
         ),
         require_spread=False,
     )
