@@ -1,5 +1,7 @@
 # OMEGA-WORLDCLASS-ENGINE
 
+**Author: Genesis Koodanga Augustine**
+
 Colab-first, reproducible research software for estimating probabilities of six 30-minute FX market phenomena. **Educational/academic use only; not financial advice.**
 
 ## Scientific contract
@@ -282,3 +284,5 @@ Adapters accept user-supplied CSV/Parquet. Dukascopy/HistData/news scraping is n
 V1 prioritizes predictive benchmarking with causal hygiene. TFT, TabPFN, LLM news, causal graphs, graph neural networks, RL, and quantum-walk modules are opt-in research extensions, not default claims. LightGBM and CatBoost are wired into the same temporal-split/calibration interface and enabled in the default config; TabPFN and TFT are registered but disabled until their adapters are validated.
 
 **CONVERSATION_HOOK:** Next upgrade candidates: point-in-time ALFRED adapter, quote-level spread adapter, TFT benchmark, and adaptive conformal calibration. The reliability pass (error taxonomy, retry/backoff, stale-lock recovery, resumable pipeline, cross-partition integrity audit, latency-honest backtest) is complete; see `docs/ANALYSIS.md` for the full audit.
+
+**Maintenance note (2026-10-09):** test suite is fully green (93 passed). `scikit-learn` emits `DeprecationWarning`s about L-BFGS-B internals (`disp`/`iprint`, slated for removal in SciPy 1.18) — these come from inside sklearn itself, not this repo's code, and clear on a future sklearn upgrade. Pinned dependency versions in `requirements.txt` are the validated set.

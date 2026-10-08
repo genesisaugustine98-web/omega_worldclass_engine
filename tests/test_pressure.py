@@ -39,7 +39,7 @@ def test_empty_dataframe_is_a_validation_error():
 
 
 def test_non_numeric_prices_are_a_validation_error():
-    frame = synthetic_fx(50)
+    frame = synthetic_fx(50).astype({"close": "object"})
     frame.loc[5, "close"] = "not-a-number"
     with pytest.raises(DataValidationError, match="numeric"):
         validate(frame)
