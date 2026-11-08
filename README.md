@@ -286,3 +286,11 @@ V1 prioritizes predictive benchmarking with causal hygiene. TFT, TabPFN, LLM new
 **CONVERSATION_HOOK:** Next upgrade candidates: point-in-time ALFRED adapter, quote-level spread adapter, TFT benchmark, and adaptive conformal calibration. The reliability pass (error taxonomy, retry/backoff, stale-lock recovery, resumable pipeline, cross-partition integrity audit, latency-honest backtest) is complete; see `docs/ANALYSIS.md` for the full audit.
 
 **Maintenance note (2026-10-09):** test suite is fully green (93 passed). `scikit-learn` emits `DeprecationWarning`s about L-BFGS-B internals (`disp`/`iprint`, slated for removal in SciPy 1.18) — these come from inside sklearn itself, not this repo's code, and clear on a future sklearn upgrade. Pinned dependency versions in `requirements.txt` are the validated set.
+
+
+## Project readiness and evidence
+
+- [Project readiness](docs/PROJECT_READINESS.md)
+- [Cost, data and security boundaries](docs/COST_AND_DATA_POLICY.md)
+
+These records separate implemented controls from self-reported performance and future evidence requirements.
